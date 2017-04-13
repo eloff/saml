@@ -591,13 +591,13 @@ func (test *ServiceProviderTest) TestInvalidResponses(c *C) {
 	s.Key = "invalid"
 	req.PostForm.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(test.SamlResponse)))
 	_, err = s.ParseResponse(&req, []string{"id-9e61753d64e928af5a7a341a97f420c9"})
-	c.Assert(err.(*InvalidResponseError).PrivateErr, ErrorMatches, "failed to decrypt response: .*PEM_read_bio_PrivateKey.*")
+	c.Assert(err.(*InvalidResponseError).PrivateErr, ErrorMatches, "cannot decode key")
 	s.Key = test.Key
 
 	s.IDPMetadata.IDPSSODescriptor.KeyDescriptor[0].KeyInfo.Certificate = "invalid"
 	req.PostForm.Set("SAMLResponse", base64.StdEncoding.EncodeToString([]byte(test.SamlResponse)))
 	_, err = s.ParseResponse(&req, []string{"id-9e61753d64e928af5a7a341a97f420c9"})
-	c.Assert(err.(*InvalidResponseError).PrivateErr, ErrorMatches, "failed to verify signature on response: .*xmlSecOpenSSLAppKeyLoadMemory.*")
+	c.Assert(err.(*InvalidResponseError).PrivateErr, ErrorMatches, "asn1: structure error: tags don't match .*")
 }
 
 func (test *ServiceProviderTest) TestInvalidAssertions(c *C) {

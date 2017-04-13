@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/crewjam/go-xmlsec"
 	"github.com/crewjam/saml/testsaml"
 	"github.com/dgrijalva/jwt-go"
 	. "gopkg.in/check.v1"
@@ -443,18 +442,20 @@ func (test *IdentityProviderTest) TestMakeAssertion(c *C) {
 			Format: "XXX",
 			Value:  "https://idp.example.com/saml/metadata",
 		},
-		Signature: &xmlsec.Signature{
-			CanonicalizationMethod: xmlsec.Method{Algorithm: "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"},
-			SignatureMethod:        xmlsec.Method{Algorithm: "http://www.w3.org/2000/09/xmldsig#rsa-sha1"},
-			ReferenceTransforms: []xmlsec.Method{
-				{Algorithm: "http://www.w3.org/2000/09/xmldsig#enveloped-signature"},
+		/*
+			Signature: &xmlsec.Signature{
+				CanonicalizationMethod: xmlsec.Method{Algorithm: "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"},
+				SignatureMethod:        xmlsec.Method{Algorithm: "http://www.w3.org/2000/09/xmldsig#rsa-sha1"},
+				ReferenceTransforms: []xmlsec.Method{
+					{Algorithm: "http://www.w3.org/2000/09/xmldsig#enveloped-signature"},
+				},
+				DigestMethod:    xmlsec.Method{Algorithm: "http://www.w3.org/2000/09/xmldsig#sha1"},
+				DigestValue:     "",
+				SignatureValue:  "",
+				KeyName:         "",
+				X509Certificate: &xmlsec.SignatureX509Data{X509Certificate: "MIIB7zCCAVgCCQDFzbKIp7b3MTANBgkqhkiG9w0BAQUFADA8MQswCQYDVQQGEwJVUzELMAkGA1UECAwCR0ExDDAKBgNVBAoMA2ZvbzESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTEzMTAwMjAwMDg1MVoXDTE0MTAwMjAwMDg1MVowPDELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAkdBMQwwCgYDVQQKDANmb28xEjAQBgNVBAMMCWxvY2FsaG9zdDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA1PMHYmhZj308kWLhZVT4vOulqx/9ibm5B86fPWwUKKQ2i12MYtz07tzukPymisTDhQaqyJ8Kqb/6JjhmeMnEOdTvSPmHO8m1ZVveJU6NoKRn/mP/BD7FW52WhbrUXLSeHVSKfWkNk6S4hk9MV9TswTvyRIKvRsw0X/gfnqkroJcCAwEAATANBgkqhkiG9w0BAQUFAAOBgQCMMlIO+GNcGekevKgkakpMdAqJfs24maGb90DvTLbRZRD7Xvn1MnVBBS9hzlXiFLYOInXACMW5gcoRFfeTQLSouMM8o57h0uKjfTmuoWHLQLi6hnF+cvCsEFiJZ4AbF+DgmO6TarJ8O05t8zvnOwJlNCASPZRH/JmF8tX0hoHuAQ=="},
 			},
-			DigestMethod:    xmlsec.Method{Algorithm: "http://www.w3.org/2000/09/xmldsig#sha1"},
-			DigestValue:     "",
-			SignatureValue:  "",
-			KeyName:         "",
-			X509Certificate: &xmlsec.SignatureX509Data{X509Certificate: "MIIB7zCCAVgCCQDFzbKIp7b3MTANBgkqhkiG9w0BAQUFADA8MQswCQYDVQQGEwJVUzELMAkGA1UECAwCR0ExDDAKBgNVBAoMA2ZvbzESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTEzMTAwMjAwMDg1MVoXDTE0MTAwMjAwMDg1MVowPDELMAkGA1UEBhMCVVMxCzAJBgNVBAgMAkdBMQwwCgYDVQQKDANmb28xEjAQBgNVBAMMCWxvY2FsaG9zdDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA1PMHYmhZj308kWLhZVT4vOulqx/9ibm5B86fPWwUKKQ2i12MYtz07tzukPymisTDhQaqyJ8Kqb/6JjhmeMnEOdTvSPmHO8m1ZVveJU6NoKRn/mP/BD7FW52WhbrUXLSeHVSKfWkNk6S4hk9MV9TswTvyRIKvRsw0X/gfnqkroJcCAwEAATANBgkqhkiG9w0BAQUFAAOBgQCMMlIO+GNcGekevKgkakpMdAqJfs24maGb90DvTLbRZRD7Xvn1MnVBBS9hzlXiFLYOInXACMW5gcoRFfeTQLSouMM8o57h0uKjfTmuoWHLQLi6hnF+cvCsEFiJZ4AbF+DgmO6TarJ8O05t8zvnOwJlNCASPZRH/JmF8tX0hoHuAQ=="},
-		},
+		*/
 		Subject: &Subject{
 			NameID: &NameID{Format: "urn:oasis:names:tc:SAML:2.0:nameid-format:transient", NameQualifier: "https://idp.example.com/saml/metadata", SPNameQualifier: "https://sp.example.com/saml2/metadata", Value: ""},
 			SubjectConfirmation: &SubjectConfirmation{
@@ -618,9 +619,9 @@ func (test *IdentityProviderTest) TestMarshalAssertion(c *C) {
 	err = req.MarshalAssertion()
 	c.Assert(err, IsNil)
 
-	// TODO(ross): we cannot trivially verify that the assertion was actually marshalled correctly because
-	//   there is randomness in the xmlsec.Encrypt()
-	// c.Assert(string(req.AssertionBuffer), Equals, "XXX")
+	fmt.Println(string(req.AssertionBuffer))
+
+	c.Assert(string(req.AssertionBuffer), Equals, "XXX")
 }
 
 func (test *IdentityProviderTest) TestMakeResponse(c *C) {
@@ -694,10 +695,11 @@ func (test *IdentityProviderTest) TestWriteResponse(c *C) {
 		Response: &Response{ID: "THIS_IS_THE_SAML_RESPONSE"},
 	}
 	req.HTTPRequest, _ = http.NewRequest("POST", "http://idp.example.com/saml/sso", nil)
-	req.Validate()
+	err := req.Validate()
+	c.Assert(err, IsNil)
 
 	w := httptest.NewRecorder()
-	err := req.WriteResponse(w)
+	err = req.WriteResponse(w)
 	c.Assert(err, IsNil)
 	c.Assert(w.Code, Equals, 200)
 	c.Assert(string(w.Body.Bytes()), Equals, "<html><form method=\"post\" action=\"https://sp.example.com/saml2/acs\" id=\"SAMLResponseForm\"><input type=\"hidden\" name=\"SAMLResponse\" value=\"PFJlc3BvbnNlIHhtbG5zPSJ1cm46b2FzaXM6bmFtZXM6dGM6U0FNTDoyLjA6cHJvdG9jb2wiIElzc3VlSW5zdGFudD0iMDAwMS0wMS0wMVQwMDowMDowMFoiIERlc3RpbmF0aW9uPSIiIElEPSJUSElTX0lTX1RIRV9TQU1MX1JFU1BPTlNFIiBJblJlc3BvbnNlVG89IiIgVmVyc2lvbj0iIj48L1Jlc3BvbnNlPg==\" /><input type=\"hidden\" name=\"RelayState\" value=\"THIS_IS_THE_RELAY_STATE\" /><input type=\"submit\" value=\"Continue\" /></form><script>document.getElementById('SAMLResponseForm').submit();</script></html>")

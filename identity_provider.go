@@ -3,6 +3,7 @@ package saml
 import (
 	"bytes"
 	"compress/flate"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/pem"
 	"encoding/xml"
@@ -16,7 +17,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/crewjam/go-xmlsec"
+	"github.com/beevik/etree"
+	"github.com/crewjam/saml/xmlenc"
+	dsig "github.com/russellhaering/goxmldsig"
 )
 
 // Session represents a user session. It is returned by the
@@ -338,7 +341,7 @@ func (req *IdpAuthnRequest) Validate() error {
 // MakeAssertion produces a SAML assertion for the
 // given request and assigns it to req.Assertion.
 func (req *IdpAuthnRequest) MakeAssertion(session *Session) error {
-	signatureTemplate := xmlsec.DefaultSignature([]byte(req.IDP.Certificate))
+
 	attributes := []Attribute{}
 	if session.UserName != "" {
 		attributes = append(attributes, Attribute{
@@ -422,7 +425,6 @@ func (req *IdpAuthnRequest) MakeAssertion(session *Session) error {
 			Format: "XXX",
 			Value:  req.IDP.Metadata().EntityID,
 		},
-		Signature: &signatureTemplate,
 		Subject: &Subject{
 			NameID: &NameID{
 				Format:          "urn:oasis:names:tc:SAML:2.0:nameid-format:transient",
@@ -470,19 +472,55 @@ func (req *IdpAuthnRequest) MakeAssertion(session *Session) error {
 // MarshalAssertion sets `AssertionBuffer` to a signed, encrypted
 // version of `Assertion`.
 func (req *IdpAuthnRequest) MarshalAssertion() error {
+
+	keyPair, err := tls.X509KeyPair([]byte(req.IDP.Certificate), []byte(req.IDP.Key))
+	if err != nil {
+		return err
+	}
+	keyStore := dsig.TLSCertKeyStore(keyPair)
+
+	ctx := dsig.NewDefaultSigningContext(keyStore)
+	if err = ctx.SetSignatureMethod(dsig.RSASHA1SignatureMethod); err != nil {
+		return err
+	}
+
 	buf, err := xml.Marshal(req.Assertion)
 	if err != nil {
 		return err
 	}
 
-	buf, err = xmlsec.Sign([]byte(req.IDP.Key),
-		buf, xmlsec.SignatureOptions{})
+	doc := etree.NewDocument()
+	if err = doc.ReadFromBytes(buf); err != nil {
+		return err
+	}
+
+	el, err := ctx.SignEnveloped(doc.Root())
 	if err != nil {
 		return err
 	}
 
-	buf, err = xmlsec.Encrypt(getSPEncryptionCert(req.ServiceProviderMetadata),
-		buf, xmlsec.EncryptOptions{})
+	doc.SetRoot(el)
+	doc.IndentTabs()
+	buf, err = doc.WriteToBytes()
+	if err != nil {
+		return err
+	}
+
+	enc := xmlenc.DefaultEncryptor
+
+	certBuf := getSPEncryptionCert(req.ServiceProviderMetadata)
+	cert := tls.Certificate{
+		Certificate: [][]byte{certBuf},
+	}
+
+	enc.Key = cert
+	el, err = enc.Encrypt(buf)
+	if err != nil {
+		return err
+	}
+
+	doc.SetRoot(el)
+	buf, err = doc.WriteToBytes()
 	if err != nil {
 		return err
 	}

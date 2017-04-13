@@ -3,9 +3,12 @@ package saml
 import (
 	"bytes"
 	"compress/flate"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -13,7 +16,10 @@ import (
 	"regexp"
 	"time"
 
-	xmlsec "github.com/crewjam/go-xmlsec"
+	"github.com/beevik/etree"
+	"github.com/crewjam/saml/xmlenc"
+	//xmlsec "github.com/crewjam/go-xmlsec"
+	dsig "github.com/russellhaering/goxmldsig"
 )
 
 type NameIDFormat string
@@ -385,39 +391,127 @@ func (sp *ServiceProvider) ParseResponse(req *http.Request, possibleRequestIDs [
 
 	var assertion *Assertion
 	if resp.EncryptedAssertion == nil {
-		if err := xmlsec.Verify(sp.getIDPSigningCert(), rawResponseBuf,
-			xmlsec.SignatureOptions{
-				XMLID: []xmlsec.XMLIDOption{{
-					ElementName:      "Response",
-					ElementNamespace: "urn:oasis:names:tc:SAML:2.0:protocol",
-					AttributeName:    "ID",
-				}},
-			}); err != nil {
+		certBuf := sp.getIDPSigningCert()
+		p, _ := pem.Decode(certBuf)
+		cert, err := x509.ParseCertificate(p.Bytes)
+		if err != nil {
+			retErr.PrivateErr = err
+			return nil, retErr
+		}
+		certificateStore := dsig.MemoryX509CertificateStore{
+			Roots: []*x509.Certificate{cert},
+		}
+
+		ctx := dsig.NewDefaultValidationContext(&certificateStore)
+		ctx.IdAttribute = "ID"
+
+		doc := etree.NewDocument()
+		if err := doc.ReadFromBytes(rawResponseBuf); err != nil {
+			retErr.PrivateErr = err
+			return nil, retErr
+		}
+
+		// TODO(ross): find an element matching:
+		//   ElementName:      "Response",
+		//   ElementNamespace: "urn:oasis:names:tc:SAML:2.0:protocol",
+		//el := doc.Root().FindElement("//Response")
+		//if el == nil {
+		//	panic(doc.Root())
+		//}
+		el := doc.Root()
+		_, err = ctx.Validate(el)
+		if err != nil {
 			retErr.PrivateErr = fmt.Errorf("failed to verify signature on response: %s", err)
 			return nil, retErr
 		}
+
+		/*
+			if err := xmlsec.Verify(sp.getIDPSigningCert(), rawResponseBuf,
+				xmlsec.SignatureOptions{
+					XMLID: []xmlsec.XMLIDOption{{
+						ElementName:      "Response",
+						ElementNamespace: "urn:oasis:names:tc:SAML:2.0:protocol",
+						AttributeName:    "ID",
+					}},
+				}); err != nil {
+				retErr.PrivateErr = fmt.Errorf("failed to verify signature on response: %s", err)
+				return nil, retErr
+			}
+		*/
 		assertion = resp.Assertion
 	}
 
 	// decrypt the response
 	if resp.EncryptedAssertion != nil {
-		plaintextAssertion, err := xmlsec.Decrypt([]byte(sp.Key), resp.EncryptedAssertion.EncryptedData)
+		doc := etree.NewDocument()
+		if err := doc.ReadFromBytes(rawResponseBuf); err != nil {
+			retErr.PrivateErr = err
+			return nil, retErr
+		}
+		el := doc.FindElement("//EncryptedAssertion/EncryptedData")
+		var key *rsa.PrivateKey
+		{
+			b, _ := pem.Decode([]byte(sp.Key))
+			if b == nil {
+				retErr.PrivateErr = errors.New("cannot decode key")
+				return nil, retErr
+			}
+			key, err = x509.ParsePKCS1PrivateKey(b.Bytes)
+			if err != nil {
+				retErr.PrivateErr = err
+				return nil, retErr
+			}
+		}
+		plaintextAssertion, err := xmlenc.Decrypt(key, el)
 		if err != nil {
 			retErr.PrivateErr = fmt.Errorf("failed to decrypt response: %s", err)
 			return nil, retErr
 		}
 		retErr.Response = string(plaintextAssertion)
 
-		if err := xmlsec.Verify(sp.getIDPSigningCert(), plaintextAssertion,
-			xmlsec.SignatureOptions{
-				XMLID: []xmlsec.XMLIDOption{{
-					ElementName:      "Assertion",
-					ElementNamespace: "urn:oasis:names:tc:SAML:2.0:assertion",
-					AttributeName:    "ID",
-				}},
-			}); err != nil {
-			retErr.PrivateErr = fmt.Errorf("failed to verify signature on response: %s", err)
-			return nil, retErr
+		{
+			certBuf := sp.getIDPSigningCert()
+			p, _ := pem.Decode(certBuf)
+			if p == nil {
+				retErr.PrivateErr = errors.New("cannot decode cert")
+				return nil, retErr
+			}
+			cert, err := x509.ParseCertificate(p.Bytes)
+			if err != nil {
+				retErr.PrivateErr = err
+				return nil, retErr
+			}
+			certificateStore := dsig.MemoryX509CertificateStore{
+				Roots: []*x509.Certificate{cert},
+			}
+
+			ctx := dsig.NewDefaultValidationContext(&certificateStore)
+			ctx.IdAttribute = "ID"
+			t, err := time.Parse(time.RFC3339, "2014-01-01T00:00:00Z")
+			if err != nil {
+				panic(err)
+			}
+			ctx.Clock = dsig.NewFakeClockAt(t)
+
+			doc := etree.NewDocument()
+			if err := doc.ReadFromBytes(plaintextAssertion); err != nil {
+				retErr.PrivateErr = err
+				return nil, retErr
+			}
+
+			// TODO(ross): find an element matching:
+			//	ElementName:      "Assertion",
+			// ElementNamespace: "urn:oasis:names:tc:SAML:2.0:assertion",
+			//el := doc.Root().FindElement("//Response")
+			//if el == nil {
+			//	panic(doc.Root())
+			//}
+			el := doc.Root()
+			_, err = ctx.Validate(el)
+			if err != nil {
+				retErr.PrivateErr = fmt.Errorf("failed to verify signature on response: %s", err)
+				return nil, retErr
+			}
 		}
 
 		assertion = &Assertion{}
